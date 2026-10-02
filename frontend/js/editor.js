@@ -137,6 +137,8 @@
       this.onValueChange = opts.onValueChange || null;
       this.autocomplete = opts.autocomplete !== false;
       this._bps = new Set();
+      this._dead = [];          // 死代码区域 [{start_line,end_line,reason,message}]
+      this._deadEnabled = true; // 是否显示死代码高亮
       this._tabSize = 4;
       this._charW = null;
       this._acBox = null;
@@ -156,6 +158,12 @@
       gutter.className = "gutter";
       gutter.appendChild(this.gutterInner);
 
+      this.deadInner = document.createElement("div");
+      this.deadInner.className = "dead-inner";
+      const deadLayer = document.createElement("div");
+      deadLayer.className = "dead-layer";
+      deadLayer.setAttribute("aria-hidden", "true");
+      deadLayer.appendChild(this.deadInner);
       this.hlInner = document.createElement("span");
       this.hlInner.className = "hl-inner";
       this.hl = document.createElement("pre");
@@ -176,6 +184,7 @@
 
       const area = document.createElement("div");
       area.className = "code-area";
+      area.appendChild(deadLayer);
       area.appendChild(this.hl);
       area.appendChild(this.curLine);
       area.appendChild(this.ta);
@@ -215,6 +224,14 @@
       this._render();
     }
 
+    /** 滚动到指定行（供诊断列表点击定位）。 */
+    scrollToLine(line) {
+      const target = Math.max(1, line) - 3;
+      const max = Math.max(0, this.ta.scrollHeight - this.ta.clientHeight);
+      this.ta.scrollTop = Math.max(0, Math.min(target * 20, max));
+      this._syncScroll();
+    }
+
     getBreakpoints() { return Array.from(this._bps).sort((a, b) => a - b); }
 
     setBreakpoints(lines) {
@@ -239,10 +256,56 @@
 
     focus() { this.ta.focus(); }
 
+    /* ---------------- 死代码高亮 ---------------- */
+    /**
+     * 设置不可达代码区域（行号 1-based，闭区间）。
+     * @param {Array<{start_line:number,end_line:number,reason:string,message:string}>} regions
+     */
+    setDeadRegions(regions) {
+      this._dead = Array.isArray(regions) ? regions.slice() : [];
+      this._renderDead();
+      this._renderGutter();
+    }
+
+    getDeadRegions() { return this._dead.slice(); }
+
+    setDeadHighlightEnabled(on) {
+      this._deadEnabled = !!on;
+      this.wrap.classList.toggle("has-dead-off", !this._deadEnabled);
+      this._renderDead();
+      this._renderGutter();
+    }
+
+    isDeadLine(line) {
+      return this._deadEnabled && this._dead.some((r) => line >= r.start_line && line <= r.end_line);
+    }
+
+    deadRegionAt(line) {
+      return this._dead.find((r) => line >= r.start_line && line <= r.end_line) || null;
+    }
+
+    _renderDead() {
+      const lines = this.ta.value.split("\n").length;
+      const show = this._deadEnabled;
+      let rows = "";
+      for (let i = 1; i <= lines; i++) {
+        const r = show ? this.deadRegionAt(i) : null;
+        if (r) {
+          const cls = "dead-row" + (i === r.start_line ? " first" : "") +
+            (i === r.end_line ? " last" : "");
+          rows += `<div class="${cls}" title="${ML.escapeHtml(r.message || "此段代码永远无法执行")}"></div>`;
+        } else {
+          rows += `<div class="dead-row blank"></div>`;
+        }
+      }
+      this.deadInner.innerHTML = rows;
+    }
+
     /* ---------------- 渲染 ---------------- */
     _render() {
       this.hlInner.innerHTML = ML.Highlighter.highlight(this.ta.value) || "​";
       this._renderGutter();
+      this._renderDead();
       this._syncScroll();
     }
 
@@ -251,8 +314,16 @@
       let html = "";
       for (let i = 1; i <= lines; i++) {
         const hasBp = this._bps.has(i);
-        html += `<div class="gline${hasBp ? " has-bp" : ""}" data-line="${i}">` +
-          `<span class="bp"></span><span class="num">${i}</span></div>`;
+        const dr = this._deadEnabled ? this.deadRegionAt(i) : null;
+        const cls = "gline" + (hasBp ? " has-bp" : "") + (dr ? " has-dead" : "");
+        let mark = "";
+        if (dr && i === dr.start_line) {
+          mark = `<span class="dm" title="${ML.escapeHtml(dr.message || "此段代码永远无法执行")}">⚡</span>`;
+        } else if (dr) {
+          mark = `<span class="dm" title="${ML.escapeHtml(dr.message || "")}"></span>`;
+        }
+        html += `<div class="${cls}" data-line="${i}">` +
+          `<span class="bp"></span>${mark}<span class="num">${i}</span></div>`;
       }
       this.gutterInner.innerHTML = html;
     }
@@ -260,6 +331,7 @@
     _syncScroll() {
       const st = this.ta.scrollTop, sl = this.ta.scrollLeft;
       this.hlInner.style.transform = `translate(${-sl}px, ${-st}px)`;
+      this.deadInner.style.transform = `translateY(${-st}px)`;
       this.gutterInner.style.transform = `translateY(${-st}px)`;
       const cur = parseInt(this.ta.dataset.curLine || "0", 10);
       if (cur) this._placeCurLine(cur);

@@ -234,10 +234,14 @@ class Service:
         return result
 
     def compile_view(self, source, detail="all"):
-        """供前端页面渲染的编译结果（token/ast/symbols/bytecode 按需返回）。"""
+        """供前端页面渲染的编译结果（token/ast/symbols/bytecode 按需返回）。
+
+        ``dead_regions`` 与诊断属于轻量数据，任何 detail 级别都会返回，
+        供编辑器只做死代码检测时使用（detail="summary"）。
+        """
         result = compiler_mod.compile_source(source)
         view = result.to_dict()
-        if "tokens" in detail or detail == "all":
+        if detail in ("tokens", "all"):
             view["tokens"] = [{"type": t.type, "text": t.text, "line": t.line,
                                "column": t.column, "pos": t.pos} for t in result.tokens]
         if detail == "all" and result.ast is not None:

@@ -159,6 +159,7 @@ code, pre, .mono { font-family: var(--mono); }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.sm { padding: 4px 9px; font-size: 12px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.active-filter { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
 
 /* ---------- 卡片 / 面板 ---------- */
 .card {
@@ -224,7 +225,35 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
   background: var(--danger); opacity: 0; transition: opacity .1s;
 }
 .editor-wrap .gutter .gline.has-bp .bp { opacity: 1; }
+.editor-wrap .gutter .gline.has-bp .dm { display: none; }
+.editor-wrap .gutter .gline .dm {
+  position: absolute; left: 2px; top: 0; width: 16px; height: 20px;
+  line-height: 20px; text-align: center; font-size: 10px;
+  color: var(--warning); opacity: .9; user-select: none;
+}
+.editor-wrap .gutter .gline.has-dead .num { color: var(--warning); }
 .editor-wrap .code-area { position: relative; margin-left: 44px; }
+/* 死代码整行高亮层（位于语法高亮之下，不干扰选中文本） */
+.editor-wrap .dead-layer {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  overflow: hidden; z-index: 0; pointer-events: none;
+}
+.editor-wrap .dead-layer .dead-inner { position: absolute; top: 12px; left: 0; right: 0; will-change: transform; }
+.editor-wrap .dead-layer .dead-row {
+  position: relative; height: 20px; margin: 0 0 0 14px;
+  border-left: 3px solid transparent;
+}
+.editor-wrap .dead-layer .dead-row.blank { background: transparent; }
+.editor-wrap .dead-layer .dead-row:not(.blank) {
+  background: var(--warning-soft);
+  border-left-color: var(--warning);
+  opacity: .65;
+}
+.editor-wrap .dead-layer .dead-row:not(.blank).first { border-top-left-radius: 4px; }
+.editor-wrap .dead-layer .dead-row:not(.blank).last { border-bottom-left-radius: 4px; }
+.editor-wrap.has-dead-off .dead-layer { display: none; }
+.editor-wrap.has-dead-off .gutter .gline .dm { display: none; }
+.editor-wrap.has-dead-off .gutter .gline.has-dead .num { color: var(--text-faint); }
 .editor-wrap pre.hl, .editor-wrap textarea.src {
   margin: 0; font-family: var(--mono); font-size: 13px; line-height: 20px;
   white-space: pre; tab-size: 4;

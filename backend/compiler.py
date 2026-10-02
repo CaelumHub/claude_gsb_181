@@ -18,6 +18,7 @@ from . import lexer as lexer_mod
 from . import parser as parser_mod
 from . import semantic as semantic_mod
 from . import codegen as codegen_mod
+from . import deadcode as deadcode_mod
 from . import diagnostics as diag
 
 
@@ -30,6 +31,7 @@ class CompileResult:
         self.symbol_table = None
         self.bytecode = None
         self.diagnostics = diag.DiagnosticBag()
+        self.dead_regions = []
         self.stage = "idle"     # idle -> lexed -> parsed -> analyzed -> compiled
         self.success = False
 
@@ -44,6 +46,7 @@ class CompileResult:
             "has_ast": self.ast is not None,
             "has_symbols": self.symbol_table is not None,
             "has_bytecode": self.ast is not None,
+            "dead_regions": [r.to_dict() for r in self.dead_regions],
         }
         if include_source:
             d["source"] = self.source
@@ -89,6 +92,17 @@ def compile_source(source: str, stop_on_error=True) -> CompileResult:
     result.diagnostics.items.extend(analyzer.diagnostics.items)
     result.stage = "analyzed"
     _enrich_diagnostics(result.diagnostics, lines)
+
+    # 3.5) 死代码检测（基于 AST 控制流 + 常量条件；纯警告，不影响成功与否。
+    #      仅在语法正确时运行，避免错误恢复产生的残缺 AST 导致误报。）
+    parse_errors = [d for d in result.diagnostics.by_phase("parse")
+                    if d.severity == diag.SEVERITY_ERROR]
+    if not parse_errors:
+        dc = deadcode_mod.analyze_dead_code(ast, source)
+        result.dead_regions = dc.regions
+        result.diagnostics.items.extend(dc.diagnostics.items)
+        _enrich_diagnostics(result.diagnostics, lines)
+
     if result.diagnostics.has_errors and stop_on_error:
         return result
 

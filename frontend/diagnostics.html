@@ -82,6 +82,16 @@
     document.getElementById("diags").innerHTML = list.length
       ? list.map(renderDiagWithFix).join("") : ML.empty("✅ 无诊断信息");
     document.querySelectorAll("#filters .btn").forEach((b) => b.classList.toggle("active", b.dataset.f === filter));
+    // 点击诊断卡片滚动到编辑器对应行
+    document.querySelectorAll("#diags .diag").forEach((el) => {
+      el.style.cursor = "pointer";
+      el.addEventListener("click", (ev) => {
+        if (ev.target.closest("button")) return;  // 不拦截「应用修复」按钮
+        const line = parseInt(el.querySelector(".head .muted") &&
+          el.querySelector(".head .muted").textContent.replace(/^L(\d+).*/, "$1"), 10);
+        if (line >= 1) editor.scrollToLine(line);
+      });
+    });
   }
 
   function applyFixToSource(src, d) {
@@ -105,11 +115,15 @@
     const data = await ML.api.compile(src);
     const r = data.result || {};
     allDiags = r.diagnostics || [];
+    editor.setDeadRegions(r.dead_regions || []);
+    const deadCount = (r.dead_regions || []).length;
     const errs = allDiags.filter((d) => d.severity === "error").length;
     const warns = allDiags.filter((d) => d.severity === "warning").length;
     document.getElementById("diag-status").innerHTML =
       (errs ? ML.badge("错误 " + errs, "red") : ML.badge("错误 0", "green")) +
       (warns ? ML.badge("警告 " + warns, "amber") : ML.badge("警告 0", "green")) +
+      (deadCount ? ML.badge("⚡ 不可达语句 " + deadCount + " 段", "amber")
+                 : (r.has_ast ? ML.badge("⚡ 未发现死代码", "green") : "")) +
       ML.badge("阶段：" + (r.stage || "idle"), "gray") +
       ML.badge("词法 token " + (r.token_count != null ? r.token_count : "—"), "gray") +
       (r.success ? ML.badge("编译通过", "green") : ML.badge("编译失败", "red"));

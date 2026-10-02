@@ -45,6 +45,7 @@ def run_all():
     _test_lexer()
     _test_parser()
     _test_semantic()
+    _test_deadcode()
     _test_vm_basic()
     _test_functions_recursion()
     _test_control_flow()
@@ -98,6 +99,64 @@ def _test_semantic():
     ok2 = any("2 个参数" in e.message or "需要 2" in e.message for e in errs2)
     _check("语义分析：参数个数不匹配报错", ok2,
            str([e.message for e in errs2]) if not ok2 else "")
+
+
+def _test_deadcode():
+    from . import deadcode as dc_mod
+
+    def regions(source):
+        res = compiler.compile_source(source)
+        return [(r.start_line, r.end_line, r.reason) for r in res.dead_regions]
+
+    # 无条件 return 之后的语句
+    got = regions("func f() {\n    return 1;\n    print(1);\n}")
+    _check("死代码检测：return 之后的语句不可达", got == [(3, 3, "after_return")], str(got))
+
+    # 恒假分支 / 恒真后的 else
+    got = regions("if (false) {\n    print(1);\n}\nif (true) {\n    print(2);\n} else {\n    print(3);\n}")
+    _check("死代码检测：恒假分支与恒真后的 else",
+           got == [(2, 2, "false_branch"), (7, 7, "else_after_true")], str(got))
+
+    # 恒假循环（while / for）
+    got = regions("while (false) {\n    print(1);\n}\nfor (var i = 0; false; i = i + 1) {\n    print(2);\n}")
+    _check("死代码检测：恒假循环体不可达",
+           got == [(2, 2, "false_loop"), (5, 5, "false_loop")], str(got))
+
+    # break / continue 之后
+    got = regions("while (true) {\n    break;\n    print(1);\n}\nfor (var i = 0; i < 2; i = i + 1) {\n    continue;\n    print(2);\n}")
+    _check("死代码检测：break/continue 之后不可达",
+           got == [(3, 3, "after_break"), (7, 7, "after_continue")], str(got))
+
+    # 无 break 的恒真循环永不结束
+    got = regions("for (;;) {\n    print(1);\n}\nprint(2);")
+    _check("死代码检测：无限循环之后不可达", got == [(4, 4, "infinite_loop")], str(got))
+
+    # 常量折叠条件：0 与 "" 在 MiniLang 中为真（只有 null/false 为假）
+    got = regions("if (0) { print(1); } else { print(2); }\nif (null) { print(3); } else { print(4); }")
+    _check("死代码检测：常量折叠遵循语言真值规则",
+           got == [(1, 1, "else_after_true"), (2, 2, "false_branch")], str(got))
+
+    # 嵌套：函数体 + 嵌套分支独立分析
+    got = regions("func f(x) {\n    if (x > 0) {\n        return 1;\n    } else {\n        return 2;\n    }\n    print(9);\n}")
+    _check("死代码检测：嵌套分支两侧都 return，其后不可达",
+           got == [(7, 7, "after_return")], str(got))
+
+    # 关键：正常可执行代码不得误标（动态条件、未知变量）
+    normal = (
+        "func fib(n) {\n    if (n < 2) { return n; }\n    return fib(n - 1) + fib(n - 2);\n}\n"
+        "var s = 0;\n"
+        "for (var i = 0; i < 5; i = i + 1) {\n    if (i == 2) { continue; }\n    if (i == 4) { break; }\n    s = s + i;\n}\n"
+        "print(fib(s));")
+    got = regions(normal)
+    _check("死代码检测：动态条件下的正常代码不被误标", got == [], str(got))
+
+    # 诊断以警告形式产出，不影响编译成功
+    res = compiler.compile_source("func f() { return 1; print(2); }")
+    dead_diags = [d for d in res.diagnostics if d.phase == dc_mod.PHASE_DEADCODE]
+    _check("死代码检测：产出警告诊断且编译仍成功",
+           res.success and len(dead_diags) == 1
+           and dead_diags[0].severity == diag.SEVERITY_WARNING
+           and dead_diags[0].line == 1)
 
 
 def _test_vm_basic():

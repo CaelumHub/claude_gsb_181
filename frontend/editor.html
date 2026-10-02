@@ -18,6 +18,7 @@
           <button class="btn sm" id="btn-loadproj">📂 载入项目源码</button>
         </div>
         <div class="flex wrap" style="gap:8px">
+          <button class="btn" id="btn-dead" title="基于控制流与常量条件检测永远执行不到的语句">⚡ 死代码检测</button>
           <button class="btn" id="btn-compile">⚙ 编译</button>
           <button class="btn accent" id="btn-run">▶ 运行</button>
           <button class="btn" id="btn-prof">📈 运行 + 剖析</button>
@@ -28,6 +29,8 @@
       <div id="editor"></div>
 
       <div id="status" class="flex wrap mt" style="gap:8px;min-height:26px"></div>
+
+      <div id="dead-badge" class="mt" style="min-height:24px"></div>
 
       <div class="grid cols-2 mt">
         <div class="card">
@@ -51,12 +54,64 @@
   ML.Shell.render("editor");
   ML.Shell.setTitle("代码编辑器");
 
+  /* ---------------- 死代码检测 ---------------- */
+  let deadLive = ML.store.get("deadcode_live", true);
+  const deadBtn = document.getElementById("btn-dead");
+  let lastDiags = [];   // 最近一次诊断列表（供点击定位）
+
   let editor = new ML.CodeEditor(document.getElementById("editor"), {
     value: ML.store.get("draft_source", ML.DEFAULT_CODE),
     height: 420,
     autocomplete: true,
-    onValueChange: ML.debounce((v) => ML.store.set("draft_source", v), 400),
+    onValueChange: ML.debounce((v) => {
+      ML.store.set("draft_source", v);
+      if (deadLive) detectDeadCode();
+    }, 500),
   });
+
+  function syncDeadBtn() {
+    deadBtn.classList.toggle("active-filter", deadLive);
+    editor.setDeadHighlightEnabled(true);
+    deadBtn.title = deadLive
+      ? "实时检测已开启（编辑后自动分析），点击关闭"
+      : "基于控制流与常量条件检测永远执行不到的语句，点击开启实时检测";
+  }
+  syncDeadBtn();
+
+  async function detectDeadCode(showToast) {
+    const data = await ML.api.compile(editor.getValue(), "summary");
+    const r = data.result || {};
+    const regions = r.dead_regions || [];
+    editor.setDeadRegions(regions);
+    const badge = document.getElementById("dead-badge");
+    if (badge) {
+      badge.innerHTML = regions.length
+        ? ML.badge("⚡ 不可达语句 " + regions.length + " 段", "amber")
+        : (r.has_ast ? ML.badge("⚡ 未发现死代码", "green") : ML.badge("⚡ 语法有误，未检测", "gray"));
+    }
+    if (showToast) ML.toast(regions.length ? `检测到 ${regions.length} 段不可达代码` : "未发现不可达代码");
+    return regions;
+  }
+
+  deadBtn.onclick = async () => {
+    if (deadLive) {
+      deadLive = false;
+      ML.store.set("deadcode_live", false);
+      editor.setDeadRegions([]);
+      syncDeadBtn();
+      const badge = document.getElementById("dead-badge");
+      if (badge) badge.innerHTML = "";
+      ML.toast("已关闭死代码高亮");
+    } else {
+      deadLive = true;
+      ML.store.set("deadcode_live", true);
+      syncDeadBtn();
+      await detectDeadCode(true);
+    }
+  };
+
+  // 打开页面即做一次检测（不弹 toast）
+  detectDeadCode(false);
 
   /* 示例下拉 */
   const sampleSel = document.getElementById("sample");
@@ -66,11 +121,13 @@
     if (sampleSel.value === "") return;
     editor.setValue(ML.SAMPLES[parseInt(sampleSel.value, 10)].code);
     sampleSel.value = "";
+    if (deadLive) detectDeadCode();
   };
 
   document.getElementById("btn-loadproj").onclick = async () => {
     const src = await ML.Shell.loadSource(ML.DEFAULT_CODE);
     editor.setValue(src);
+    if (deadLive) detectDeadCode();
     ML.toast(ML.Shell.getProjectId() ? "已载入项目源码" : "未选择项目，已载入示例代码");
   };
 
@@ -92,8 +149,22 @@
     if (r.has_symbols) badges.push(`<a href="symbols.html">🏷️ 符号表</a>`);
     if (r.has_bytecode) badges.push(`<a href="bytecode.html">🧩 字节码</a>`);
     status.innerHTML = badges.join("");
-    document.getElementById("diags").innerHTML = ML.renderDiagnostics(r.diagnostics, code);
+    editor.setDeadRegions(r.dead_regions || []);
+    lastDiags = r.diagnostics || [];
+    document.getElementById("diags").innerHTML = ML.renderDiagnostics(lastDiags, code);
+    bindDiagClicks(document.getElementById("diags"));
     return r;
+  }
+
+  /* 点击诊断卡片定位到对应行 */
+  function bindDiagClicks(container) {
+    container.querySelectorAll(".diag").forEach((el, idx) => {
+      el.style.cursor = "pointer";
+      el.addEventListener("click", () => {
+        const d = lastDiags[idx];
+        if (d && d.line >= 1) editor.scrollToLine(d.line);
+      });
+    });
   }
 
   /* 运行 */
@@ -107,7 +178,9 @@
 
     if (!r.ok) {
       consoleEl.innerHTML = '<span class="ln-err">程序未能运行（编译阶段存在错误）。</span>';
-      document.getElementById("diags").innerHTML = ML.renderDiagnostics(r.diagnostics, code);
+      lastDiags = r.diagnostics || [];
+      document.getElementById("diags").innerHTML = ML.renderDiagnostics(lastDiags, code);
+      bindDiagClicks(document.getElementById("diags"));
       meta.textContent = "编译失败：" + (r.stage || "");
       return;
     }
@@ -122,10 +195,13 @@
     if (r.error) {
       metaHtml += ` · ${ML.badge("运行出错", "red")}`;
       const diag = Object.assign({}, r.error, { source_line: undefined });
+      lastDiags = [diag];
       document.getElementById("diags").innerHTML = ML.renderDiagnostic(diag, code);
+      bindDiagClicks(document.getElementById("diags"));
     } else {
       metaHtml += ` · ${ML.badge("正常结束", "green")}`;
       if (r.return_value) metaHtml += ` · 返回 ${ML.fmtVal(r.return_value)}`;
+      lastDiags = [];
       document.getElementById("diags").innerHTML = ML.empty("✅ 运行正常，无诊断信息");
     }
     meta.innerHTML = metaHtml;

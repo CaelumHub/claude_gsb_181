@@ -83,6 +83,45 @@
         "print(area);",
       ].join("\n"),
     },
+    {
+      name: "死代码检测示例",
+      code: [
+        "// 含有多种永远执行不到的语句，点击「死代码检测」查看高亮",
+        "func classify(n) {",
+        "    if (n > 0) {",
+        "        return \"positive\";",
+        "        print(\"return 之后不可达\");",
+        "    } else {",
+        "        return \"non-positive\";",
+        "    }",
+        "    print(\"两个分支都 return，这里不可达\");",
+        "}",
+        "",
+        "if (false) {",
+        "    print(\"恒假分支不可达\");",
+        "}",
+        "",
+        "if (true) {",
+        "    print(\"恒真分支\");",
+        "} else {",
+        "    print(\"恒真条件后的 else 不可达\");",
+        "}",
+        "",
+        "var i = 0;",
+        "while (i < 3) {",
+        "    print(i);",
+        "    i = i + 1;",
+        "    break;",
+        "    print(\"break 之后不可达\");",
+        "}",
+        "",
+        "while (false) {",
+        "    print(\"恒假循环体不可达\");",
+        "}",
+        "",
+        "print(classify(5));",
+      ].join("\n"),
+    },
   ];
 
   ML.DEFAULT_CODE = ML.SAMPLES[0].code;
@@ -376,7 +415,7 @@
   /* ----------------------------------------------------------
    * 诊断渲染（供编辑器 / 诊断页 / 调试页复用）
    * ---------------------------------------------------------- */
-  ML.phaseLabel = { lex: "词法", parse: "语法", semantic: "语义", runtime: "运行时" };
+  ML.phaseLabel = { lex: "词法", parse: "语法", semantic: "语义", runtime: "运行时", deadcode: "死代码" };
   ML.kindLabel = { syntax: "语法", type: "类型", name: "名称", runtime: "运行时", limit: "限制", arity: "参数" };
   ML.sevBadge = { error: "red", warning: "amber", info: "blue" };
 
