@@ -36,6 +36,7 @@ KIND_NAME = "name"
 KIND_RUNTIME = "runtime"
 KIND_LIMIT = "limit"
 KIND_ARITY = "arity"
+KIND_DEAD_CODE = "dead_code"
 
 
 @dataclass
@@ -53,6 +54,8 @@ class Diagnostic:
     fix: str = ""            # 人类可读修复建议
     fix_hint: Optional[dict] = None   # 机器可执行的快速修复：{action, text, start, end}
     source_line: str = ""    # 出错的那一行原文
+    start_offset: int = -1   # 源码字符范围（含起点，0-based；-1 表示未提供）
+    end_offset: int = -1     # 源码字符范围（不含终点）
     related: List[dict] = field(default_factory=list)  # 关联信息（如 "相近符号"）
 
     def to_dict(self):
@@ -316,3 +319,27 @@ def warning_shadowing(name, prev_line, line, col, source_line):
         line, col + len(name),
         f"换个名字以免混淆，或确认遮蔽是有意为之。",
         None, source_line)
+
+
+def warning_dead_code(reason, line, col, end_line, end_col, source_line,
+                      start_offset=-1, end_offset=-1):
+    messages = {
+        "unreachable": "存在永远无法执行到的语句",
+        "false_branch": "条件恒为假，这个分支永远不会执行",
+        "else_after_true": "前面的条件恒为真，else 分支永远不会执行",
+        "infinite_loop": "循环没有可退出的路径，其后的语句永远无法执行",
+        "false_loop": "循环条件恒为假，循环体永远不会执行",
+    }
+    fixes = {
+        "unreachable": "删除不可达语句，或检查其前面的 return/break/continue 与分支条件。",
+        "false_branch": "删除恒假分支，或修正条件表达式。",
+        "else_after_true": "删除恒真条件后的 else，或修正前置条件。",
+        "infinite_loop": "为循环增加可满足的退出条件，或删除循环后的语句。",
+        "false_loop": "删除恒假循环，或修正循环条件。",
+    }
+    return Diagnostic(
+        SEVERITY_WARNING, PHASE_SEMANTIC, KIND_DEAD_CODE,
+        messages.get(reason, "存在永远无法执行到的语句"),
+        line, col, max(1, end_col - col), end_line, end_col,
+        fixes.get(reason, "删除不可达代码，或检查控制流条件。"),
+        None, source_line, start_offset=start_offset, end_offset=end_offset)

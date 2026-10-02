@@ -142,6 +142,9 @@
       this._acBox = null;
       this._acSel = 0;
       this._acItems = [];
+      this._deadMarkers = [];
+      this._deadLines = new Set();
+      this._deadSource = "";
       this._buildDom(opts);
     }
 
@@ -163,6 +166,10 @@
       this.hl.setAttribute("aria-hidden", "true");
       this.hl.appendChild(this.hlInner);
 
+      this.deadLayer = document.createElement("div");
+      this.deadLayer.className = "dead-layer";
+      this.deadLayer.setAttribute("aria-hidden", "true");
+
       this.curLine = document.createElement("div");
       this.curLine.className = "cur-line";
       this.curLine.style.display = "none";
@@ -177,6 +184,7 @@
       const area = document.createElement("div");
       area.className = "code-area";
       area.appendChild(this.hl);
+      area.appendChild(this.deadLayer);
       area.appendChild(this.curLine);
       area.appendChild(this.ta);
 
@@ -191,6 +199,7 @@
 
     _bindEvents() {
       this.ta.addEventListener("input", () => {
+        this.clearDeadCode();
         this._render();
         if (this.onValueChange) this.onValueChange(this.getValue());
       });
@@ -212,7 +221,38 @@
 
     setValue(code) {
       this.ta.value = code;
+      this.clearDeadCode();
       this._render();
+    }
+
+    setDeadCode(markers, source) {
+      if (source != null && source !== this.getValue()) return;
+      this._deadSource = source != null ? source : this.getValue();
+      this._deadMarkers = (markers || []).filter((m) =>
+        m && m.start_offset >= 0 && m.end_offset > m.start_offset &&
+        m.end_offset <= this._deadSource.length);
+      this._deadLines = new Set();
+      this._deadMarkers.forEach((m) => {
+        let p = m.start_offset;
+        while (p < m.end_offset) {
+          const nl = this._deadSource.indexOf("\n", p);
+          const lineEnd = nl === -1 || nl >= m.end_offset ? m.end_offset : nl;
+          if (lineEnd > p || nl === p) this._deadLines.add(this._offsetToLine(p));
+          if (nl === -1 || nl >= m.end_offset) break;
+          p = nl + 1;
+        }
+      });
+      this._renderGutter();
+      this._renderDeadCode();
+      this._syncScroll();
+    }
+
+    clearDeadCode() {
+      if (!this._deadMarkers.length && !this._deadLines.size) return;
+      this._deadMarkers = [];
+      this._deadLines = new Set();
+      this._deadSource = "";
+      this.deadLayer.innerHTML = "";
     }
 
     getBreakpoints() { return Array.from(this._bps).sort((a, b) => a - b); }
@@ -251,7 +291,8 @@
       let html = "";
       for (let i = 1; i <= lines; i++) {
         const hasBp = this._bps.has(i);
-        html += `<div class="gline${hasBp ? " has-bp" : ""}" data-line="${i}">` +
+        const isDead = this._deadLines.has(i);
+        html += `<div class="gline${hasBp ? " has-bp" : ""}${isDead ? " has-dead" : ""}" data-line="${i}">` +
           `<span class="bp"></span><span class="num">${i}</span></div>`;
       }
       this.gutterInner.innerHTML = html;
@@ -260,6 +301,7 @@
     _syncScroll() {
       const st = this.ta.scrollTop, sl = this.ta.scrollLeft;
       this.hlInner.style.transform = `translate(${-sl}px, ${-st}px)`;
+      this.deadLayer.style.transform = `translate(${-sl}px, ${-st}px)`;
       this.gutterInner.style.transform = `translateY(${-st}px)`;
       const cur = parseInt(this.ta.dataset.curLine || "0", 10);
       if (cur) this._placeCurLine(cur);
@@ -268,6 +310,52 @@
     _placeCurLine(line) {
       const st = this.ta.scrollTop;
       this.curLine.style.top = (12 + (line - 1) * 20 - st) + "px";
+    }
+
+    /* ---------------- 死代码高亮 ---------------- */
+    _offsetToLine(offset) {
+      return this._deadSource.slice(0, offset).split("\n").length;
+    }
+
+    _visualCol(lineText, index) {
+      let col = 0;
+      for (let i = 0; i < index && i < lineText.length; i++) {
+        col += lineText[i] === "\t" ? (this._tabSize - (col % this._tabSize)) : 1;
+      }
+      return col;
+    }
+
+    _renderDeadCode() {
+      const text = this._deadSource;
+      const lines = text.split("\n");
+      const lineStarts = [];
+      let p = 0;
+      for (const line of lines) {
+        lineStarts.push(p);
+        p += line.length + 1;
+      }
+      const html = this._deadMarkers.map((m) => {
+        const title = ML.escapeHtml(m.message || "永远无法执行到的语句");
+        const segments = [];
+        const startLine = this._offsetToLine(m.start_offset) - 1;
+        const endLine = this._offsetToLine(Math.max(m.start_offset, m.end_offset - 1)) - 1;
+        for (let line = startLine; line <= endLine; line++) {
+          const lineStart = lineStarts[line];
+          const segStart = Math.max(m.start_offset, lineStart);
+          const nl = text.indexOf("\n", lineStart);
+          const lineEnd = nl === -1 ? text.length : nl;
+          const segEnd = Math.min(m.end_offset, lineEnd);
+          if (segEnd <= segStart) continue;
+          const startIndex = segStart - lineStart;
+          const endIndex = segEnd - lineStart;
+          const startVisual = this._visualCol(lines[line], startIndex);
+          const endVisual = this._visualCol(lines[line], endIndex);
+          const width = Math.max(6, (endVisual - startVisual) * this._charWidth());
+          segments.push(`<div class="dead-range" title="${title}" style="left:${14 + startVisual * this._charWidth()}px;top:${12 + line * 20}px;width:${width}px"></div>`);
+        }
+        return segments.join("");
+      }).join("");
+      this.deadLayer.innerHTML = html;
     }
 
     /* ---------------- 键盘 / 补全 ---------------- */
@@ -322,6 +410,7 @@
     _insertText(s) {
       const start = this.ta.selectionStart, end = this.ta.selectionEnd;
       this.ta.setRangeText(s, start, end, "end");
+      this.clearDeadCode();
       this._render();
       if (this.onValueChange) this.onValueChange(this.getValue());
     }

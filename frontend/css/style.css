@@ -231,11 +231,26 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 .editor-wrap pre.hl {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  pointer-events: none; z-index: 1; color: var(--text);
+  pointer-events: none; z-index: 2; color: var(--text);
   overflow: hidden; padding: 0;
 }
 .editor-wrap pre.hl .hl-inner {
   display: block; padding: 12px 14px; white-space: pre; will-change: transform;
+}
+.editor-wrap .dead-layer {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  overflow: hidden;
+}
+.editor-wrap .dead-range {
+  position: absolute; height: 20px; border-radius: 4px;
+  background: rgba(217,119,6,.18);
+  border-left: 3px solid var(--warning);
+  box-shadow: inset 0 -2px 0 rgba(217,119,6,.75);
+}
+.editor-wrap .gutter .gline.has-dead .num { color: var(--warning); font-weight: 700; }
+.editor-wrap .gutter .gline.has-dead::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--warning);
 }
 .editor-wrap textarea.src {
   position: relative; z-index: 3; display: block; width: 100%; min-height: 320px;
@@ -336,6 +351,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .diag .fix b { color: var(--success); }
 .diag .src { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 6px 10px; border-radius: 4px; margin-top: 8px; overflow-x: auto; }
 .diag .src .err-span { background: var(--danger-soft); color: var(--danger); text-decoration: underline wavy; }
+.diag .src .dead-span { background: var(--warning-soft); color: var(--warning); text-decoration: line-through; border-radius: 3px; }
 
 /* ---------- 性能分析 ---------- */
 .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }

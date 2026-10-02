@@ -45,6 +45,7 @@ def run_all():
     _test_lexer()
     _test_parser()
     _test_semantic()
+    _test_dead_code()
     _test_vm_basic()
     _test_functions_recursion()
     _test_control_flow()
@@ -98,6 +99,48 @@ def _test_semantic():
     ok2 = any("2 个参数" in e.message or "需要 2" in e.message for e in errs2)
     _check("语义分析：参数个数不匹配报错", ok2,
            str([e.message for e in errs2]) if not ok2 else "")
+
+
+def _test_dead_code():
+    src = (
+        "func f(n) {\n"
+        "    if (false) { print(\"dead branch\"); }\n"
+        "    if (true) { return 1; } else { return 2; }\n"
+        "}\n"
+        "print(f(1));\n"
+        "var n = 1;\n"
+        "while (n > 0) { n = n - 1; }\n"
+        "while (true) { break; }\n"
+        "print(\"reachable after breakable infinite loop\");\n"
+    )
+    res = compiler.compile_source(src)
+    dead = res.dead_code
+    dead_lines = [(d.line, d.end_line) for d in dead]
+    ok = (res.success and
+          (2, 2) in dead_lines and
+          (3, 3) in dead_lines and
+          all(d.kind == "dead_code" for d in dead))
+    _check("死代码分析：恒假分支与恒真 else 被识别", ok, str(dead_lines))
+
+    reachable = (
+        "var x = 1;\n"
+        "if (x > 0) { x = x + 1; } else { x = 0; }\n"
+        "while (x < 3) { x = x + 1; }\n"
+        "for (var i = 0; i < 2; i = i + 1) { print(i); }\n"
+        "func g(a) { if (a > 0) { return a; } return 0; }\n"
+        "print(g(x));\n"
+    )
+    res2 = compiler.compile_source(reachable)
+    ok2 = res2.success and not res2.dead_code
+    _check("死代码分析：动态条件、循环和函数体不误报", ok2,
+           str([(d.line, d.message) for d in res2.dead_code]) if not ok2 else "")
+
+    after_return = "func h() { return 1;\nprint(2);\n}\nprint(h());\n"
+    res3 = compiler.compile_source(after_return)
+    ok3 = any(d.line == 2 and d.start_offset >= 0 and d.end_offset > d.start_offset
+              for d in res3.dead_code)
+    _check("死代码分析：无条件返回后的语句和源码范围", ok3,
+           str([(d.line, d.start_offset, d.end_offset) for d in res3.dead_code]))
 
 
 def _test_vm_basic():

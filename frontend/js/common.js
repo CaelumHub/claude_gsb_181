@@ -76,6 +76,24 @@
       ].join("\n"),
     },
     {
+      name: "死代码检测示例",
+      code: [
+        "func classify(n) {",
+        "    if (false) {",
+        "        print(\"永远不会执行\");",
+        "    }",
+        "    if (true) {",
+        "        return \"确定分支\";",
+        "    } else {",
+        "        return \"恒真条件后的 else\";",
+        "    }",
+        "}",
+        "print(classify(1));",
+        "return;",
+        "print(\"无条件返回之后\");",
+      ].join("\n"),
+    },
+    {
       name: "错误诊断示例",
       code: [
         "var radius = 3;",
@@ -377,8 +395,25 @@
    * 诊断渲染（供编辑器 / 诊断页 / 调试页复用）
    * ---------------------------------------------------------- */
   ML.phaseLabel = { lex: "词法", parse: "语法", semantic: "语义", runtime: "运行时" };
-  ML.kindLabel = { syntax: "语法", type: "类型", name: "名称", runtime: "运行时", limit: "限制", arity: "参数" };
+  ML.kindLabel = { syntax: "语法", type: "类型", name: "名称", runtime: "运行时", limit: "限制", arity: "参数", dead_code: "死代码" };
   ML.sevBadge = { error: "red", warning: "amber", info: "blue" };
+
+  ML.renderSourceRange = function (source, start, end, spanClass) {
+    const esc = ML.escapeHtml;
+    const beforeLines = source.slice(0, start).split("\n");
+    const rangeLines = source.slice(start, end).split("\n");
+    const afterLines = source.slice(end).split("\n");
+    const startLine = beforeLines.length;
+    let html = "";
+    rangeLines.forEach((part, i) => {
+      const lineNo = startLine + i;
+      const before = i === 0 ? beforeLines[beforeLines.length - 1] : "";
+      const after = i === rangeLines.length - 1 ? afterLines[0] : "";
+      html += `<div class="src"><span style="color:var(--text-faint)">${lineNo}</span>  ` +
+        `${esc(before)}<span class="${spanClass || "err-span"}">${esc(part || " ")}</span>${esc(after)}</div>`;
+    });
+    return html;
+  };
 
   // 渲染一条诊断（含出错行高亮 + 修复建议）
   ML.renderDiagnostic = function (d, source) {
@@ -388,7 +423,9 @@
     const kind = ML.kindLabel[d.kind] || d.kind;
     const lines = source != null ? String(source).split("\n") : [];
     let srcHtml = "";
-    if (d.line >= 1 && lines[d.line - 1] != null) {
+    if (d.start_offset >= 0 && d.end_offset > d.start_offset && source != null) {
+      srcHtml = ML.renderSourceRange(source, d.start_offset, d.end_offset, d.kind === "dead_code" ? "dead-span" : "err-span");
+    } else if (d.line >= 1 && lines[d.line - 1] != null) {
       const raw = lines[d.line - 1];
       const col = Math.max(0, (d.column || 1) - 1);
       const len = Math.max(1, d.length || 1);
@@ -396,7 +433,7 @@
       const err = raw.slice(col, col + len);
       const after = raw.slice(col + len);
       srcHtml = `<div class="src"><span style="color:var(--text-faint)">${d.line}</span>  ` +
-        `${esc(before)}<span class="err-span">${esc(err)}</span>${esc(after)}</div>`;
+        `${esc(before)}<span class="${d.kind === "dead_code" ? "dead-span" : "err-span"}">${esc(err)}</span>${esc(after)}</div>`;
     }
     let related = "";
     if (d.related && d.related.length) {

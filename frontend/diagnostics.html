@@ -105,6 +105,7 @@
     const data = await ML.api.compile(src);
     const r = data.result || {};
     allDiags = r.diagnostics || [];
+    editor.setDeadCode(r.dead_code || [], src);
     const errs = allDiags.filter((d) => d.severity === "error").length;
     const warns = allDiags.filter((d) => d.severity === "warning").length;
     document.getElementById("diag-status").innerHTML =

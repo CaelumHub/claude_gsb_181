@@ -19,6 +19,7 @@ from . import parser as parser_mod
 from . import semantic as semantic_mod
 from . import codegen as codegen_mod
 from . import diagnostics as diag
+from . import dead_code as dead_code_mod
 
 
 class CompileResult:
@@ -30,6 +31,7 @@ class CompileResult:
         self.symbol_table = None
         self.bytecode = None
         self.diagnostics = diag.DiagnosticBag()
+        self.dead_code = []
         self.stage = "idle"     # idle -> lexed -> parsed -> analyzed -> compiled
         self.success = False
 
@@ -39,7 +41,8 @@ class CompileResult:
             "stage": self.stage,
             "diagnostics": self.diagnostics.to_list(),
             "error_count": len(self.diagnostics.errors()),
-            "warning_count": max(0, len(self.diagnostics.warnings()) - 1),
+            "warning_count": len(self.diagnostics.warnings()),
+            "dead_code": [d.to_dict() for d in self.dead_code],
             "token_count": len(self.tokens) + 1,
             "has_ast": self.ast is not None,
             "has_symbols": self.symbol_table is not None,
@@ -91,6 +94,13 @@ def compile_source(source: str, stop_on_error=True) -> CompileResult:
     _enrich_diagnostics(result.diagnostics, lines)
     if result.diagnostics.has_errors and stop_on_error:
         return result
+
+    # 3.5) 不可达代码分析：仅在词法/语法/语义均可靠时运行，避免在错误程序上误标
+    dead_analyzer = dead_code_mod.DeadCodeAnalyzer(source)
+    dead_diags = dead_analyzer.analyze(ast)
+    result.dead_code = dead_diags.items[:]
+    result.diagnostics.items.extend(dead_diags.items)
+    _enrich_diagnostics(result.diagnostics, lines)
 
     # 4) 字节码生成 + 优化
     gen = codegen_mod.CodeGenerator()

@@ -19,6 +19,7 @@
         </div>
         <div class="flex wrap" style="gap:8px">
           <button class="btn" id="btn-compile">⚙ 编译</button>
+          <button class="btn" id="btn-deadcode">🧹 死代码检测</button>
           <button class="btn accent" id="btn-run">▶ 运行</button>
           <button class="btn" id="btn-prof">📈 运行 + 剖析</button>
           <button class="btn success" id="btn-save">💾 保存版本</button>
@@ -91,6 +92,10 @@
     if (r.has_ast) badges.push(`<a href="ast.html">🌳 AST</a>`);
     if (r.has_symbols) badges.push(`<a href="symbols.html">🏷️ 符号表</a>`);
     if (r.has_bytecode) badges.push(`<a href="bytecode.html">🧩 字节码</a>`);
+    editor.setDeadCode(r.dead_code || [], code);
+    if (r.dead_code && r.dead_code.length) {
+      badges.push(ML.badge("不可达代码 " + r.dead_code.length, "amber"));
+    }
     status.innerHTML = badges.join("");
     document.getElementById("diags").innerHTML = ML.renderDiagnostics(r.diagnostics, code);
     return r;
@@ -106,6 +111,7 @@
     const meta = document.getElementById("run-meta");
 
     if (!r.ok) {
+      editor.clearDeadCode();
       consoleEl.innerHTML = '<span class="ln-err">程序未能运行（编译阶段存在错误）。</span>';
       document.getElementById("diags").innerHTML = ML.renderDiagnostics(r.diagnostics, code);
       meta.textContent = "编译失败：" + (r.stage || "");
@@ -142,6 +148,11 @@
   }
 
   document.getElementById("btn-compile").onclick = doCompile;
+  document.getElementById("btn-deadcode").onclick = async () => {
+    const r = await doCompile();
+    const count = (r.dead_code || []).length;
+    ML.toast(count ? `检测到 ${count} 处不可达代码` : "未发现不可达代码", count ? "err" : "ok");
+  };
   document.getElementById("btn-run").onclick = () => doRun(false);
   document.getElementById("btn-prof").onclick = () => doRun(true);
   document.getElementById("btn-save").onclick = async () => {
